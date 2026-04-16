@@ -21,6 +21,18 @@ A desktop application that monitors folders and automatically encodes video file
 - **Headless mode** -- run without GUI via `--headless` for server/daemon use
 - **Persistent config** -- all settings saved to `config.json` and restored on next launch
 
+## Download
+
+Pre-built binaries are available on the [Releases](https://github.com/redaapps4fun/auto-video-encoder/releases/latest) page:
+
+| Platform | Download |
+|----------|----------|
+| Windows  | [`AutoVideoEncoder-Windows.exe`](https://github.com/redaapps4fun/auto-video-encoder/releases/latest/download/AutoVideoEncoder-Windows.exe) |
+| Linux    | [`AutoVideoEncoder-Linux`](https://github.com/redaapps4fun/auto-video-encoder/releases/latest/download/AutoVideoEncoder-Linux) |
+| macOS    | [`AutoVideoEncoder-macOS.zip`](https://github.com/redaapps4fun/auto-video-encoder/releases/latest/download/AutoVideoEncoder-macOS.zip) |
+
+> The builds are not code-signed. Your OS will likely show a security warning the first time you run the app. See [Running Unsigned Builds](#running-unsigned-builds) below for how to bypass this on each platform.
+
 ## Screenshots
 
 <!-- Add screenshots of the GUI here -->
@@ -38,8 +50,8 @@ A desktop application that monitors folders and automatically encodes video file
 ### From Source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Auto-Video-Encoder.git
-cd Auto-Video-Encoder
+git clone https://github.com/redaapps4fun/auto-video-encoder.git
+cd auto-video-encoder
 
 python -m venv .venv
 
@@ -153,6 +165,46 @@ Auto Video Encoder/
 7. **Output** -- The result is moved to the output folder (mirroring the subfolder structure) and the source is optionally deleted
 8. **Watch** -- After the initial scan, the engine polls the source folder every 2 seconds for new files
 
+## Running Unsigned Builds
+
+The release binaries are not code-signed, so your operating system may flag them as untrusted. Here's how to get past the warning on each platform.
+
+### Windows — SmartScreen Warning
+
+When you run the `.exe` for the first time, Windows may show **"Windows protected your PC"**.
+
+1. Click **"More info"**
+2. Click **"Run anyway"**
+
+This only happens once. After the first launch, Windows remembers your choice.
+
+### macOS — Gatekeeper Block
+
+macOS will show **"AutoVideoEncoder can't be opened because Apple cannot check it for malicious software"**.
+
+1. Unzip `AutoVideoEncoder-macOS.zip`
+2. Try to open `AutoVideoEncoder.app` — it will be blocked
+3. Open **System Settings → Privacy & Security**
+4. Scroll down — you'll see a message about AutoVideoEncoder being blocked
+5. Click **"Open Anyway"** and confirm
+
+Alternatively, remove the quarantine attribute from Terminal before opening it:
+
+```bash
+xattr -cr /path/to/AutoVideoEncoder.app
+```
+
+### Linux — Permission Denied
+
+The downloaded binary may not have execute permission:
+
+```bash
+chmod +x AutoVideoEncoder-Linux
+./AutoVideoEncoder-Linux
+```
+
+No signing warnings on Linux — the file just needs to be marked as executable.
+
 ## License
 
-This project is provided as-is for personal use.
+Licensed under the [Apache License 2.0](LICENSE).

@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# App generated
+config.json
+
+# Other files
+old_files/

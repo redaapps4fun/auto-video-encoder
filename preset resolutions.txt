@@ -1,0 +1,7 @@
+Resolution @ Video Bitrate Excluding Audio
+480p @ 400 kbps
+720p @ 1.0 Mbps
+1080p @ 2.0 Mbps
+1440p @ 4.0 Mbps
+4K UHD @ 8.0 Mbps
+8K @ 30 Mbps

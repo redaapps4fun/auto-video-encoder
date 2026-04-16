@@ -35,7 +35,7 @@ Pre-built binaries are available on the [Releases](https://github.com/redaapps4f
 
 ## Screenshots
 
-<!-- Add screenshots of the GUI here -->
+![Screen Shot](Capture.PNG)
 
 ## Requirements
 

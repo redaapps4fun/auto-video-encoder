@@ -1,0 +1,92 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: AutoVideoEncoder-Windows
+            binary: dist/AutoVideoEncoder.exe
+          - os: ubuntu-22.04
+            artifact: AutoVideoEncoder-Linux
+            binary: dist/AutoVideoEncoder
+          - os: macos-latest
+            artifact: AutoVideoEncoder-macOS
+            binary: dist/AutoVideoEncoder.app
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.os }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Linux display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxkbcommon0 libdbus-1-3 \
+            libfontconfig1 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-keysyms1 libxcb-shape0
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build
+        run: python build.py --onefile
+
+      - name: Compress macOS .app bundle
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r9 AutoVideoEncoder-macOS.zip AutoVideoEncoder.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ runner.os == 'macOS' && 'dist/AutoVideoEncoder-macOS.zip' || matrix.binary }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir release
+          cp artifacts/AutoVideoEncoder-Windows/AutoVideoEncoder.exe  release/AutoVideoEncoder-Windows.exe
+          cp artifacts/AutoVideoEncoder-Linux/AutoVideoEncoder        release/AutoVideoEncoder-Linux
+          cp artifacts/AutoVideoEncoder-macOS/AutoVideoEncoder-macOS.zip release/AutoVideoEncoder-macOS.zip
+          chmod +x release/AutoVideoEncoder-Linux
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*

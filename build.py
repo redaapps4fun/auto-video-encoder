@@ -48,12 +48,16 @@ def main():
     if ICON.exists() and sys.platform != "linux":
         cmd.extend(["--icon", str(ICON)])
 
-    if args.onefile:
-        cmd.append("--onefile")
-    else:
-        cmd.append("--onedir")
+    onefile = args.onefile
+    windowed = not args.console
 
-    if not args.console:
+    # macOS .app bundles are always directories; --onefile is incompatible
+    if sys.platform == "darwin" and windowed:
+        onefile = False
+
+    cmd.append("--onefile" if onefile else "--onedir")
+
+    if windowed:
         cmd.append("--windowed")
 
     cmd.append(str(ENTRY))

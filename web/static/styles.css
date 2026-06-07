@@ -73,6 +73,36 @@ body {
   font-size: 0.9rem;
 }
 
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 0.6rem 0.75rem;
+  align-items: center;
+}
+
+.field-row label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field-row.checkbox-row {
+  grid-template-columns: auto 1fr;
+}
+
+.field-row select,
+.field-row input[type="text"],
+.field-row input[type="number"] {
+  min-width: 0;
+  width: 100%;
+}
+
 input[type="text"],
 input[type="number"],
 select,
@@ -256,7 +286,8 @@ input[type="checkbox"] {
 }
 
 @media (max-width: 640px) {
-  .form-grid {
+  .form-grid,
+  .field-row {
     grid-template-columns: 1fr;
   }
 }

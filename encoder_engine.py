@@ -21,6 +21,7 @@ from handbrake import (
     build_args,
     get_output_format,
 )
+from processed_registry import ProcessedRegistry
 
 
 def _fmt_size(size_bytes: int) -> str:
@@ -60,6 +61,7 @@ class EncoderEngine(QObject):
     def __init__(self, config: ConfigManager, parent: QObject | None = None):
         super().__init__(parent)
         self._config = config
+        self._registry = ProcessedRegistry()
         self._state = "idle"
         self._file_queue: list[str] = []
         self._done_files: set[str] = set()
@@ -70,6 +72,7 @@ class EncoderEngine(QObject):
         self._stats_encoded = 0
         self._stats_copied = 0
         self._stats_skipped = 0
+        self._stats_registry_skipped = 0
 
         self._cur_file = ""
         self._cur_output_dir = ""
@@ -80,6 +83,7 @@ class EncoderEngine(QObject):
 
         self._lock_retries = 0
         self._stop_requested = False
+        self._rescan_requested = False
 
         self._timer: QTimer | None = None
 
@@ -102,6 +106,7 @@ class EncoderEngine(QObject):
             "encoded": self._stats_encoded,
             "copied": self._stats_copied,
             "skipped": self._stats_skipped,
+            "registry_skipped": self._stats_registry_skipped,
             "queued": len(self._file_queue),
         })
 
@@ -140,6 +145,7 @@ class EncoderEngine(QObject):
         self._stats_encoded = 0
         self._stats_copied = 0
         self._stats_skipped = 0
+        self._stats_registry_skipped = 0
 
         self._probe = FFProbeRunner(ff_path)
         self._hb_runner = HandBrakeRunner(hb_path)
@@ -155,6 +161,10 @@ class EncoderEngine(QObject):
         self._stop_requested = True
         if self._hb_runner:
             self._hb_runner.cancel()
+
+    def request_rescan(self):
+        """Request a rescan of the source folder (e.g. after path change)."""
+        self._rescan_requested = True
 
     def wait(self, timeout_ms: int = 10000):
         """Block until the worker thread finishes."""
@@ -184,13 +194,26 @@ class EncoderEngine(QObject):
                   + (f"  |  {w}x{h}" if w and h else "")
                   + (f"  |  Target: {target} kbps" if target else ""))
         self._log(f"Delete source: {'Yes' if cfg.get('delete_source') else 'No'}")
+        self._log(f"Replace in place: {'Yes' if cfg.get('replace_in_place') else 'No'}")
         self._log("=" * 50)
+
+        source_base = cfg.get("source_base", "")
+        pruned = self._registry.prune(source_base)
+        if pruned:
+            self._log(f"Pruned {pruned} stale processed-file record(s).")
 
         self._scan_existing_files()
 
         self._set_state("processing")
 
         while not self._stop_requested:
+            if self._rescan_requested:
+                self._rescan_requested = False
+                self._log("Source folder changed — rescanning...")
+                self._scan_existing_files()
+                if self._file_queue:
+                    self._set_state("processing")
+
             if self._state == "processing":
                 if not self._file_queue:
                     self._set_state("watching")
@@ -221,10 +244,34 @@ class EncoderEngine(QObject):
     #  Scanning
     # ------------------------------------------------------------------
 
+    def _source_base(self) -> str:
+        return self._config.get("source_base", "").rstrip(os.sep)
+
+    def _consider_file(self, fp: Path, exts: set[str], *, log_new: bool = False) -> bool:
+        """Return True if the file was queued for processing."""
+        fp_str = str(fp)
+        if not _is_video_file(fp, exts):
+            return False
+
+        self._done_files.add(fp_str)
+
+        source_base = self._source_base()
+        if self._registry.should_skip(source_base, fp):
+            self._stats_registry_skipped += 1
+            rel = self._registry.relative_key(source_base, fp)
+            self._log(f"Already processed (unchanged): {rel}")
+            return False
+
+        self._file_queue.append(fp_str)
+        if log_new:
+            self._log(f"New file detected: {fp_str}")
+        return True
+
     def _scan_existing_files(self):
         self._log("Scanning source folder for existing files...")
-        source = Path(self._config.get("source_base", ""))
+        source = Path(self._source_base())
         exts = self._video_extensions()
+        queued = 0
 
         for root, dirs, files in os.walk(source):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
@@ -232,19 +279,17 @@ class EncoderEngine(QObject):
                 return
             for fname in sorted(files):
                 fp = Path(root) / fname
-                if _is_video_file(fp, exts):
-                    self._file_queue.append(str(fp))
-                    self._done_files.add(str(fp))
+                if self._consider_file(fp, exts):
+                    queued += 1
 
-        count = len(self._file_queue)
-        if count:
-            self._log(f"Found {count} existing file(s) to process.")
+        if queued:
+            self._log(f"Found {queued} existing file(s) to process.")
         else:
             self._log("No existing files found. Switching to watch mode.")
         self._emit_stats()
 
     def _scan_for_new_files(self):
-        source = Path(self._config.get("source_base", ""))
+        source = Path(self._source_base())
         exts = self._video_extensions()
         found = 0
 
@@ -253,11 +298,11 @@ class EncoderEngine(QObject):
             if self._stop_requested:
                 return
             for fname in files:
-                fp = str(Path(root) / fname)
-                if fp not in self._done_files and _is_video_file(Path(fp), exts):
-                    self._done_files.add(fp)
-                    self._file_queue.append(fp)
-                    self._log(f"New file detected: {fp}")
+                fp = Path(root) / fname
+                fp_str = str(fp)
+                if fp_str in self._done_files:
+                    continue
+                if self._consider_file(fp, exts, log_new=True):
                     found += 1
 
         if found:
@@ -343,7 +388,7 @@ class EncoderEngine(QObject):
         _, target_h = cfg.get_active_resolution()
         if target_h > 0 and height > 0 and height < target_h:
             self._log("Resolution below output target -- copying original.")
-            self._copy_original(file_path, output_dir, file_name, delete_source)
+            self._copy_original(file_path, output_dir, file_name, delete_source, result="copied")
             self._stats_copied += 1
             self._emit_stats()
             self._log("-" * 54)
@@ -368,7 +413,9 @@ class EncoderEngine(QObject):
 
                 if orig_kbps <= target_kbps:
                     self._log("Bitrate already at or below target -- copying original.")
-                    self._copy_original(file_path, output_dir, file_name, delete_source)
+                    self._copy_original(
+                        file_path, output_dir, file_name, delete_source, result="skipped",
+                    )
                     self._stats_skipped += 1
                     self._emit_stats()
                     self._log("-" * 54)
@@ -427,7 +474,7 @@ class EncoderEngine(QObject):
 
         if not success or not temp_path.exists() or temp_path.stat().st_size == 0:
             self._log("ERROR: Encoding produced no output. Falling back to original.")
-            self._copy_original(source_path, output_dir, file_name, delete_source)
+            self._copy_original(source_path, output_dir, file_name, delete_source, result="copied")
             self._stats_copied += 1
             self._emit_stats()
             self._log("-" * 54)
@@ -440,21 +487,32 @@ class EncoderEngine(QObject):
             saving = round(abs(1 - encoded_size / orig_size) * 100, 1)
             self._log(f"Encoded file LARGER than original ({saving}% bigger). Using original.")
             temp_path.unlink(missing_ok=True)
-            self._copy_original(source_path, output_dir, file_name, delete_source)
+            self._copy_original(source_path, output_dir, file_name, delete_source, result="copied")
             self._stats_copied += 1
         else:
             saving = round((1 - encoded_size / orig_size) * 100, 1)
             final_name = file_base + out_ext
             final_path = os.path.join(output_dir, final_name)
+            source_base = self._source_base()
 
             replace_in_place = self._config.get("replace_in_place", False)
+            source_rel = self._registry.relative_key(source_base, source_path)
+            output_rel = self._registry.relative_key(source_base, final_path)
+
             if replace_in_place:
+                self._registry.mark_processed(
+                    source_base, source_path, "encoded", output_rel=output_rel,
+                )
                 try:
                     Path(source_path).unlink()
                 except OSError:
                     pass
                 shutil.move(str(temp_path), final_path)
+                self._registry.mark_processed(
+                    source_base, final_path, "encoded", source_rel=source_rel,
+                )
             else:
+                self._registry.mark_processed(source_base, source_path, "encoded")
                 shutil.move(str(temp_path), final_path)
                 if delete_source:
                     try:
@@ -478,12 +536,17 @@ class EncoderEngine(QObject):
     #  File operations
     # ------------------------------------------------------------------
 
-    def _copy_original(self, source: str, output_dir: str, file_name: str, delete_source: bool):
+    def _copy_original(
+        self, source: str, output_dir: str, file_name: str,
+        delete_source: bool, result: str = "copied",
+    ):
         dest = os.path.join(output_dir, file_name)
         replace_in_place = self._config.get("replace_in_place", False)
+        source_base = self._source_base()
 
         if replace_in_place:
             self._log(f"Kept original      : {file_name}")
+            self._registry.mark_processed(source_base, source, "kept")
             return
 
         try:
@@ -491,6 +554,8 @@ class EncoderEngine(QObject):
         except OSError as e:
             self._log(f"ERROR: Failed to copy original: {e}")
             return
+
+        self._registry.mark_processed(source_base, source, result)
 
         if delete_source:
             try:

@@ -126,9 +126,20 @@ Settings are stored in `config.json` next to the executable (or in `%LOCALAPPDAT
 | `output_base` | Root folder for encoded output | *(empty)* |
 | `encoding_mode` | `abr`, `crf`, or `advanced` | `abr` |
 | `delete_source` | Delete source file after processing | `true` |
-| `replace_in_place` | Overwrite source file instead of using output folder | `false` |
+| `replace_in_place` | Replace the source file in its original folder instead of writing to the output folder | `false` |
 | `auto_start_watcher` | Start encoding on app launch | `false` |
 | `video_extensions` | File extensions to process | `.mkv .mp4 .avi .mov .wmv .m4v .ts .flv .mpg .mpeg` |
+
+### Processed-File Registry
+
+Successfully handled files are recorded in `processed_registry.json` (same directory as `config.json`). Each entry stores the file's size and modification time so the app can skip unchanged files after a reboot or relaunch.
+
+- **Skip on scan** — If a video's path and fingerprint match a prior successful completion, it is not queued again.
+- **Re-encode on change** — If a file at the same path has a different size or modification time, it is treated as new content and queued normally.
+- **Replace in place** — When the output extension changes (e.g. `.avi` → `.mkv`), both the original and new filenames are registered so neither is re-processed.
+- **Clear history** — Use **Clear Processed History** in the GUI or web UI (or `DELETE /api/processed-history`) to force a full re-encode of the current source folder.
+
+Transient failures (locked files, cancelled encodes, copy errors) are not recorded and will be retried on the next run.
 
 ### ABR Presets
 
@@ -147,6 +158,7 @@ Settings are stored in `config.json` next to the executable (or in `%LOCALAPPDAT
 Auto Video Encoder/
 ├── main.py              # Entry point (GUI and headless modes)
 ├── config.py            # ConfigManager with defaults and INI migration
+├── processed_registry.py # Persistent ledger of successfully processed files
 ├── encoder_engine.py    # QThread-based folder watcher and encoding state machine
 ├── handbrake.py         # HandBrakeCLI argument builder and process runner
 ├── ffprobe.py           # Resolution, duration, and bitrate detection
@@ -168,16 +180,19 @@ Auto Video Encoder/
 └── config.json          # User settings (auto-generated)
 ```
 
+`processed_registry.json` is created automatically alongside `config.json`.
+
 ## How It Works
 
-1. **Scan** -- On start, the engine walks the source folder recursively and queues all video files
+1. **Scan** -- On start, the engine walks the source folder recursively and queues video files that are not already recorded in the processed-file registry (unchanged size + modification time)
 2. **Lock check** -- Before processing, each file is tested for read access (retries up to 12 times at 5-second intervals to wait for incomplete downloads)
 3. **Probe** -- ffprobe reads the file's resolution, duration, and calculates its bitrate
-4. **Skip decision** -- If the source resolution is below the target, or the bitrate is already at/below the target, the file is copied as-is
+4. **Skip decision** -- If the source resolution is below the target, or the bitrate is already at/below the target, the file is copied as-is (or kept in place when replace-in-place is enabled)
 5. **Encode** -- HandBrakeCLI encodes to a temp file; real-time progress is streamed to the GUI
 6. **Size check** -- If the encoded file is larger than the original, the original is kept instead
-7. **Output** -- The result is moved to the output folder (mirroring the subfolder structure) and the source is optionally deleted
-8. **Watch** -- After the initial scan, the engine polls the source folder every 2 seconds for new files
+7. **Output** -- The result is moved to the output folder (mirroring the subfolder structure) or replaces the source file when replace-in-place is enabled; the source is optionally deleted
+8. **Record** -- Successfully handled files are written to `processed_registry.json` so relaunch does not repeat unchanged work
+9. **Watch** -- After the initial scan, the engine polls the source folder every 2 seconds for new files
 
 ## Running Unsigned Builds
 

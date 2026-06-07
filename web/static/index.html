@@ -36,6 +36,9 @@
 
         <label for="video_extensions">Video Extensions</label>
         <input id="video_extensions" type="text" data-key="video_extensions" placeholder=".mkv .mp4 .avi ...">
+
+        <span></span>
+        <button type="button" id="btn-clear-history" class="btn secondary">Clear Processed History</button>
       </div>
 
       <div id="tools-status" class="tools-status"></div>
@@ -53,11 +56,11 @@
       </div>
 
       <div id="panel-abr" class="mode-panel">
-        <div class="form-grid" id="abr-fields"></div>
+        <div class="form-stack" id="abr-fields"></div>
       </div>
 
       <div id="panel-crf" class="mode-panel hidden">
-        <div class="form-grid" id="crf-fields"></div>
+        <div class="form-stack" id="crf-fields"></div>
       </div>
 
       <div id="panel-advanced" class="mode-panel hidden">
@@ -67,6 +70,7 @@
 
       <div class="common-controls">
         <label><input type="checkbox" id="delete_source" data-key="delete_source"> Delete source file when done</label>
+        <label><input type="checkbox" id="replace_in_place" data-key="replace_in_place"> Replace original file in source folder</label>
         <label><input type="checkbox" id="auto_start_watcher" data-key="auto_start_watcher"> Start watcher on app launch</label>
       </div>
     </section>
@@ -84,7 +88,7 @@
     <section class="panel">
       <h2>Status</h2>
       <p id="status-line" class="status-line">Status: Ready</p>
-      <p id="stats-line" class="stats-line">Processed: 0   Encoded: 0   Copied: 0   Skipped: 0   Queued: 0</p>
+      <p id="stats-line" class="stats-line">Processed: 0   Encoded: 0   Copied: 0   Skipped: 0   Already done: 0   Queued: 0</p>
       <input id="progress-line" class="progress-line" type="text" readonly>
     </section>
 

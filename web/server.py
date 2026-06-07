@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import threading
 from pathlib import Path
@@ -68,7 +69,9 @@ def _invoke_qt(bridge: HeadlessBridge, method: str, *args):
     if not args:
         ok = QMetaObject.invokeMethod(bridge, method, connection)
     elif len(args) == 1 and isinstance(args[0], dict):
-        ok = QMetaObject.invokeMethod(bridge, method, connection, Q_ARG(object, args[0]))
+        ok = QMetaObject.invokeMethod(
+            bridge, method, connection, Q_ARG(str, json.dumps(args[0]))
+        )
     elif len(args) == 1 and isinstance(args[0], str):
         ok = QMetaObject.invokeMethod(bridge, method, connection, Q_ARG(str, args[0]))
     else:
@@ -155,8 +158,6 @@ def create_app(bridge: HeadlessBridge, hub: EventHub) -> FastAPI:
 
     @app.put("/api/config")
     def put_config(body: dict[str, Any]):
-        if bridge.is_running:
-            raise HTTPException(status_code=409, detail="Cannot save config while encoder is running")
         try:
             merged = _deep_merge(_base_defaults(), body)
             _invoke_qt(bridge, "apply_config", merged)
@@ -167,6 +168,15 @@ def create_app(bridge: HeadlessBridge, hub: EventHub) -> FastAPI:
     @app.get("/api/tools/status")
     def tools_status():
         return bridge.get_tools_status()
+
+    @app.delete("/api/processed-history")
+    def clear_processed_history(source: str = ""):
+        payload = {"source": source} if source else {}
+        try:
+            _invoke_qt(bridge, "clear_processed_history", payload)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"ok": True}
 
     @app.post("/api/tools/download")
     def tools_download(body: dict[str, str]):

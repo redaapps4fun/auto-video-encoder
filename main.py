@@ -70,6 +70,7 @@ def run_headless(
             lambda s: log.info(
                 f"Processed: {s['total']}  Encoded: {s['encoded']}  "
                 f"Copied: {s['copied']}  Skipped: {s['skipped']}  "
+                f"Already done: {s.get('registry_skipped', 0)}  "
                 f"Queued: {s['queued']}"
             )
         )

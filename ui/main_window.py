@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer, Slot
 
 from config import ConfigManager
 from encoder_engine import EncoderEngine
+from processed_registry import ProcessedRegistry
 from tools import tool_valid
 from ui.mode_abr import ABRModePanel
 from ui.mode_crf import CRFModePanel
@@ -111,6 +112,10 @@ class MainWindow(QMainWindow):
         self.edit_exts.setPlaceholderText(".mkv .mp4 .avi .mov ...")
         form.addRow("Video Extensions:", self.edit_exts)
 
+        btn_clear_history = QPushButton("Clear Processed History")
+        btn_clear_history.clicked.connect(self._clear_processed_history)
+        form.addRow("", btn_clear_history)
+
         parent_layout.addWidget(grp)
 
     def _build_mode_selector(self, parent_layout: QVBoxLayout):
@@ -139,6 +144,9 @@ class MainWindow(QMainWindow):
 
         self.chk_delete = QCheckBox("Delete source file when done")
         row.addWidget(self.chk_delete)
+
+        self.chk_replace = QCheckBox("Replace original file in source folder")
+        row.addWidget(self.chk_replace)
 
         row.addStretch()
 
@@ -176,7 +184,10 @@ class MainWindow(QMainWindow):
         self.lbl_status.setFont(QFont("Segoe UI", 9, QFont.Bold))
         parent_layout.addWidget(self.lbl_status)
 
-        self.lbl_stats = QLabel("Processed: 0   Encoded: 0   Copied: 0   Skipped: 0   Queued: 0")
+        self.lbl_stats = QLabel(
+            "Processed: 0   Encoded: 0   Copied: 0   Skipped: 0   "
+            "Already done: 0   Queued: 0"
+        )
         self.lbl_stats.setFont(QFont("Consolas", 8))
         parent_layout.addWidget(self.lbl_stats)
 
@@ -215,6 +226,7 @@ class MainWindow(QMainWindow):
         self.edit_exts.setText(" ".join(exts))
 
         self.chk_delete.setChecked(cfg.get("delete_source", True))
+        self.chk_replace.setChecked(cfg.get("replace_in_place", False))
         self.chk_auto_start.setChecked(cfg.get("auto_start_watcher", False))
 
         mode = cfg.get("encoding_mode", "abr")
@@ -240,6 +252,7 @@ class MainWindow(QMainWindow):
         cfg.set("video_extensions", [e.strip().lower() for e in exts_text.split() if e.strip()])
 
         cfg.set("delete_source", self.chk_delete.isChecked())
+        cfg.set("replace_in_place", self.chk_replace.isChecked())
         cfg.set("auto_start_watcher", self.chk_auto_start.isChecked())
         cfg.set("encoding_mode", self.combo_mode.currentData())
 
@@ -254,6 +267,7 @@ class MainWindow(QMainWindow):
                      self.edit_ff, self.edit_exts]:
             edit.textChanged.connect(self._schedule_save)
         self.chk_delete.toggled.connect(self._schedule_save)
+        self.chk_replace.toggled.connect(self._schedule_save)
         self.chk_auto_start.toggled.connect(self._schedule_save)
         self.combo_mode.currentIndexChanged.connect(self._schedule_save)
 
@@ -321,6 +335,34 @@ class MainWindow(QMainWindow):
                 self.edit_ff.setText(dlg.ffprobe_path())
             self._do_save()
 
+    def _clear_processed_history(self):
+        source = self.edit_source.text().strip()
+        if source:
+            msg = (
+                f"Clear processed-file history for the current source folder?\n\n{source}\n\n"
+                "All videos in that folder will be eligible for encoding again."
+            )
+        else:
+            msg = (
+                "Clear processed-file history for all source folders?\n\n"
+                "All tracked videos will be eligible for encoding again."
+            )
+        reply = QMessageBox.question(
+            self, APP_NAME, msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        registry = ProcessedRegistry()
+        count = registry.clear(source or None)
+        scope = source or "all sources"
+        QMessageBox.information(
+            self, APP_NAME,
+            f"Cleared {count} processed-file record(s) for {scope}.",
+        )
+
     # ==================================================================
     #  START / STOP
     # ==================================================================
@@ -359,9 +401,11 @@ class MainWindow(QMainWindow):
 
     @Slot(dict)
     def _on_stats(self, s: dict):
+        registry_skipped = s.get("registry_skipped", 0)
         self.lbl_stats.setText(
             f"Processed: {s['total']}   Encoded: {s['encoded']}   "
             f"Copied: {s['copied']}   Skipped: {s['skipped']}   "
+            f"Already done: {registry_skipped}   "
             f"Queued: {s['queued']}"
         )
 

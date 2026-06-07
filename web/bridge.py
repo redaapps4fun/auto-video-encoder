@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from collections import deque
 from datetime import datetime
 from threading import Lock
@@ -12,6 +13,7 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from config import ConfigManager
 from encoder_engine import EncoderEngine
+from processed_registry import ProcessedRegistry
 from tools import (
     download_ffprobe,
     download_handbrake,
@@ -61,6 +63,7 @@ class HeadlessBridge(QObject):
             "encoded": 0,
             "copied": 0,
             "skipped": 0,
+            "registry_skipped": 0,
             "queued": 0,
         }
         self._progress = ""
@@ -69,6 +72,7 @@ class HeadlessBridge(QObject):
         self._event_callbacks: list[Callable[[dict], None]] = []
         self._callback_lock = Lock()
         self._download_worker: _DownloadWorker | None = None
+        self._registry = ProcessedRegistry()
 
     @property
     def config(self) -> ConfigManager:
@@ -119,6 +123,10 @@ class HeadlessBridge(QObject):
         if self.is_running:
             return
 
+        if self._engine is not None:
+            self._engine.deleteLater()
+            self._engine = None
+
         self._engine = EncoderEngine(self._config)
         self._engine.log_message.connect(self._on_log)
         self._engine.stats_updated.connect(self._on_stats)
@@ -133,12 +141,31 @@ class HeadlessBridge(QObject):
         if self._engine:
             self._engine.stop()
 
-    @Slot(object)
-    def apply_config(self, data: dict):
-        if self.is_running:
-            raise RuntimeError("Cannot save config while encoder is running")
+    @Slot(str)
+    def apply_config(self, data_json: str):
+        data = json.loads(data_json)
+        old_source = self._config.get("source_base", "")
+        old_output = self._config.get("output_base", "")
         self._config.load_from_dict(data)
+        new_source = self._config.get("source_base", "")
+        new_output = self._config.get("output_base", "")
+        if old_source != new_source or old_output != new_output:
+            self._append_log(
+                f"Paths updated — source: {new_source or '(empty)'}, "
+                f"output: {new_output or '(empty)'}"
+            )
+            if self.is_running and old_source != new_source and self._engine:
+                self._engine.request_rescan()
         self._emit_event({"type": "config_saved"})
+
+    @Slot(str)
+    def clear_processed_history(self, payload_json: str):
+        payload = json.loads(payload_json) if payload_json else {}
+        source = payload.get("source") or self._config.get("source_base", "")
+        count = self._registry.clear(source or None)
+        scope = source or "all sources"
+        self._append_log(f"Cleared {count} processed-file record(s) for {scope}.")
+        self._emit_event({"type": "processed_history_cleared", "count": count})
 
     @Slot(str)
     def download_tool(self, tool: str):

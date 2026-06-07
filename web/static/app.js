@@ -12,6 +12,16 @@ function pathKey(path) {
   return path.join(".");
 }
 
+function fieldId(path) {
+  return `field-${pathKey(path)}`;
+}
+
+function onFieldInputChanged() {
+  updateConfigFromForm();
+  updateConditionalVisibility();
+  scheduleSave();
+}
+
 function getNested(obj, path, fallback = "") {
   let node = obj;
   for (const key of path) {
@@ -53,7 +63,7 @@ async function api(method, url, body) {
 
 function addField(container, spec) {
   const row = document.createElement("div");
-  row.className = "form-grid field-row";
+  row.className = "field-row";
   row.dataset.path = pathKey(spec.path);
   if (spec.showWhen) {
     row.dataset.showWhen = spec.showWhen;
@@ -61,11 +71,11 @@ function addField(container, spec) {
 
   const label = document.createElement("label");
   label.textContent = spec.label;
-  label.htmlFor = `field-${pathKey(spec.path)}`;
+  label.htmlFor = fieldId(spec.path);
   row.appendChild(label);
 
   let input;
-  const id = `field-${pathKey(spec.path)}`;
+  const id = fieldId(spec.path);
 
   if (spec.type === "select") {
     input = document.createElement("select");
@@ -87,7 +97,7 @@ function addField(container, spec) {
     input.type = "checkbox";
     input.id = id;
     label.remove();
-    row.className = "field-row";
+    row.className = "field-row checkbox-row";
     row.appendChild(input);
     const text = document.createElement("span");
     text.textContent = spec.label;
@@ -108,13 +118,13 @@ function addField(container, spec) {
     num.step = input.step;
     num.style.width = "4.5rem";
     num.dataset.sync = id;
-    input.addEventListener("input", () => { num.value = input.value; });
-    num.addEventListener("input", () => { input.value = num.value; updateConfigFromForm(); });
+    input.addEventListener("input", () => { num.value = input.value; onFieldInputChanged(); });
+    num.addEventListener("input", () => { input.value = num.value; onFieldInputChanged(); });
     wrap.appendChild(input);
     wrap.appendChild(num);
     row.appendChild(wrap);
     container.appendChild(row);
-    input.addEventListener("change", updateConfigFromForm);
+    input.addEventListener("change", onFieldInputChanged);
     return row;
   } else {
     input = document.createElement("input");
@@ -128,10 +138,10 @@ function addField(container, spec) {
 
   row.appendChild(input);
   container.appendChild(row);
-  input.addEventListener("change", () => {
-    updateConfigFromForm();
-    updateConditionalVisibility();
-  });
+  input.addEventListener("change", onFieldInputChanged);
+  if (spec.type === "text" || spec.type === "number") {
+    input.addEventListener("input", onFieldInputChanged);
+  }
   return row;
 }
 
@@ -315,7 +325,7 @@ function buildAdvancedFields() {
     panel.id = `adv-panel-${name}`;
     panel.className = `adv-panel${idx === 0 ? " active" : ""}`;
     const grid = document.createElement("div");
-    grid.className = "form-grid";
+    grid.className = "form-stack";
     panel.appendChild(grid);
     fields.forEach((spec) => addField(grid, spec));
     panelsEl.appendChild(panel);
@@ -323,7 +333,8 @@ function buildAdvancedFields() {
 }
 
 function fieldInput(path) {
-  return $(`#field-${pathKey(path)}`);
+  // IDs contain dots (e.g. field-abr.preset); querySelector treats "." as a class selector.
+  return document.getElementById(fieldId(path));
 }
 
 function loadConfigToForm() {
@@ -340,11 +351,11 @@ function loadConfigToForm() {
     }
   });
 
-  setField(["abr", "preset"], config.abr?.preset ?? "720p");
+  setField(["abr", "preset"], config.abr?.preset || "720p");
   setField(["abr", "custom_width"], config.abr?.custom_width ?? 1280);
   setField(["abr", "custom_height"], config.abr?.custom_height ?? 720);
   setField(["abr", "custom_vb"], config.abr?.custom_vb ?? 1000);
-  setField(["abr", "encoder"], config.abr?.encoder ?? "nvenc_h265");
+  setField(["abr", "encoder"], config.abr?.encoder || "nvenc_h265");
   setField(["abr", "audio_bitrate"], config.abr?.audio_bitrate ?? 128);
 
   const crfQuality = config.crf?.quality ?? 22;
@@ -357,11 +368,11 @@ function loadConfigToForm() {
   }
   setField(["crf", "quality_preset"], crfPreset);
   setField(["crf", "quality"], crfQuality);
-  setField(["crf", "encoder"], config.crf?.encoder ?? "nvenc_h265");
-  setField(["crf", "resolution_preset"], config.crf?.resolution_preset ?? "720p");
+  setField(["crf", "encoder"], config.crf?.encoder || "nvenc_h265");
+  setField(["crf", "resolution_preset"], config.crf?.resolution_preset || "720p");
   setField(["crf", "custom_width"], config.crf?.custom_width ?? 1280);
   setField(["crf", "custom_height"], config.crf?.custom_height ?? 720);
-  setField(["crf", "audio_encoder"], config.crf?.audio_encoder ?? "av_aac");
+  setField(["crf", "audio_encoder"], config.crf?.audio_encoder || "av_aac");
   setField(["crf", "audio_bitrate"], config.crf?.audio_bitrate ?? 128);
 
   for (const fields of Object.values(ADVANCED_SCHEMA)) {
@@ -519,7 +530,6 @@ function setEngineRunning(running) {
   engineRunning = running;
   $("#btn-start").disabled = running;
   $("#btn-stop").disabled = !running;
-  $("#btn-save").disabled = running;
 }
 
 function appendLog(line) {
@@ -529,8 +539,9 @@ function appendLog(line) {
 }
 
 function updateStats(stats) {
+  const registrySkipped = stats.registry_skipped ?? 0;
   $("#stats-line").textContent =
-    `Processed: ${stats.total}   Encoded: ${stats.encoded}   Copied: ${stats.copied}   Skipped: ${stats.skipped}   Queued: ${stats.queued}`;
+    `Processed: ${stats.total}   Encoded: ${stats.encoded}   Copied: ${stats.copied}   Skipped: ${stats.skipped}   Already done: ${registrySkipped}   Queued: ${stats.queued}`;
 }
 
 function updateToolsStatus(status) {
@@ -547,19 +558,34 @@ async function refreshToolsStatus() {
   return status;
 }
 
-async function saveConfig() {
+async function saveConfig(options = {}) {
+  const silent = options.silent === true;
   const statusEl = $("#save-status");
-  statusEl.className = "save-status";
-  statusEl.textContent = "Saving...";
+  if (!silent) {
+    statusEl.className = "save-status";
+    statusEl.textContent = "Saving...";
+  }
   try {
     updateConfigFromForm();
     await api("PUT", "/api/config", config);
-    statusEl.textContent = "Config saved.";
-    statusEl.classList.add("ok");
+    if (!silent) {
+      statusEl.textContent = "Config saved.";
+      statusEl.classList.add("ok");
+    }
   } catch (err) {
-    statusEl.textContent = err.message;
-    statusEl.classList.add("err");
+    if (!silent) {
+      statusEl.textContent = err.message;
+      statusEl.classList.add("err");
+    }
+    throw err;
   }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveConfig({ silent: true }).catch(() => {});
+  }, 500);
 }
 
 function connectWebSocket() {
@@ -587,6 +613,7 @@ function connectWebSocket() {
       setEngineRunning(!!msg.running);
     } else if (msg.type === "error") {
       appendLog(`ERROR: ${msg.message}`);
+      setEngineRunning(false);
     } else if (msg.type === "download") {
       if (msg.status === "complete") {
         refreshToolsStatus().then((s) => {
@@ -616,21 +643,41 @@ async function init() {
   $("#encoding_mode").addEventListener("change", () => {
     updateModePanels();
     updateConfigFromForm();
+    scheduleSave();
   });
 
   fieldInput(["advanced", "video", "rate_control"])?.addEventListener("change", () => {
     updateAdvancedRateControl();
-    updateConfigFromForm();
+    onFieldInputChanged();
   });
 
   $("#btn-save").addEventListener("click", saveConfig);
   $("#btn-clear-log").addEventListener("click", () => { $("#log-view").textContent = ""; });
+  $("#btn-clear-history").addEventListener("click", async () => {
+    const source = $("#source_base").value.trim();
+    const scope = source || "all source folders";
+    if (!window.confirm(
+      `Clear processed-file history for ${scope}?\n\nAll tracked videos will be eligible for encoding again.`,
+    )) {
+      return;
+    }
+    try {
+      const query = source ? `?source=${encodeURIComponent(source)}` : "";
+      await api("DELETE", `/api/processed-history${query}`);
+      $("#save-status").textContent = "Processed history cleared.";
+      $("#save-status").className = "save-status ok";
+    } catch (err) {
+      $("#save-status").textContent = err.message;
+      $("#save-status").className = "save-status err";
+    }
+  });
 
   $("#btn-start").addEventListener("click", async () => {
     try {
       await saveConfig();
       await api("POST", "/api/engine/start");
-      setEngineRunning(true);
+      const status = await api("GET", "/api/engine/status");
+      setEngineRunning(!!status.running);
     } catch (err) {
       $("#save-status").textContent = err.message;
       $("#save-status").className = "save-status err";
@@ -663,7 +710,16 @@ async function init() {
   });
 
   $$("[data-key]").forEach((el) => {
-    el.addEventListener("change", updateConfigFromForm);
+    el.addEventListener("change", () => {
+      updateConfigFromForm();
+      scheduleSave();
+    });
+    if (el.type === "text" || el.tagName === "TEXTAREA") {
+      el.addEventListener("input", () => {
+        updateConfigFromForm();
+        scheduleSave();
+      });
+    }
   });
 
   connectWebSocket();

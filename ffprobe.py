@@ -44,6 +44,12 @@ class FFProbeRunner:
             raise FFProbeError(f"ffprobe not found at: {self._exe}")
         except subprocess.TimeoutExpired:
             raise FFProbeError(f"ffprobe timed out on: {file_path}")
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            detail = f": {err}" if err else ""
+            raise FFProbeError(
+                f"ffprobe exited with code {result.returncode}{detail}"
+            )
         return result.stdout.strip()
 
     def get_resolution(self, file_path: str | Path) -> tuple[int, int]:

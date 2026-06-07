@@ -18,25 +18,19 @@ from pathlib import Path
 from typing import Any
 
 
+def _default_encoder() -> str:
+    """NVENC on Windows; CPU encoder on Linux/macOS where GPU encoding is uncommon."""
+    return "nvenc_h265" if sys.platform == "win32" else "x264"
+
+
 def _default_handbrake_path() -> str:
-    from tools import get_tool_path
-    managed = get_tool_path("HandBrakeCLI")
-    if managed.is_file():
-        return str(managed)
-    if sys.platform == "win32":
-        prog = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
-        system = prog / "HandBrake" / "HandBrakeCLI.exe"
-        if system.exists():
-            return str(system)
-    return ""
+    from tools import discover_handbrake
+    return discover_handbrake()
 
 
 def _default_ffprobe_path() -> str:
-    from tools import get_tool_path
-    managed = get_tool_path("ffprobe")
-    if managed.is_file():
-        return str(managed)
-    return ""
+    from tools import discover_ffprobe
+    return discover_ffprobe()
 
 
 def _base_defaults() -> dict:
@@ -56,7 +50,7 @@ def _base_defaults() -> dict:
 
         "abr": {
             "preset": "720p",
-            "encoder": "nvenc_h265",
+            "encoder": _default_encoder(),
             "custom_width": 1280,
             "custom_height": 720,
             "custom_vb": 1000,
@@ -65,7 +59,7 @@ def _base_defaults() -> dict:
 
         "crf": {
             "quality": 22,
-            "encoder": "nvenc_h265",
+            "encoder": _default_encoder(),
             "resolution_preset": "720p",
             "custom_width": 1280,
             "custom_height": 720,
@@ -75,7 +69,7 @@ def _base_defaults() -> dict:
 
         "advanced": {
             "video": {
-                "encoder": "nvenc_h265",
+                "encoder": _default_encoder(),
                 "rate_control": "quality",
                 "quality": 22.0,
                 "vb": 1000,
@@ -167,6 +161,25 @@ def _base_defaults() -> dict:
             },
         },
     }
+
+
+def _ensure_tool_paths(data: dict) -> dict:
+    """Fill in or replace broken tool paths with auto-discovered ones."""
+    from tools import discover_ffprobe, discover_handbrake, tool_valid, test_ffprobe, test_handbrake
+
+    ff = data.get("ffprobe", "")
+    if not ff or not tool_valid(ff) or not test_ffprobe(ff)[0]:
+        discovered = discover_ffprobe()
+        if discovered:
+            data["ffprobe"] = discovered
+
+    hb = data.get("handbrake_cli", "")
+    if not hb or not tool_valid(hb) or not test_handbrake(hb)[0]:
+        discovered = discover_handbrake()
+        if discovered:
+            data["handbrake_cli"] = discovered
+
+    return data
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -300,20 +313,20 @@ class ConfigManager:
             try:
                 with open(self._json_path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
-                self._data = _deep_merge(_base_defaults(), saved)
+                self._data = _ensure_tool_paths(_deep_merge(_base_defaults(), saved))
             except (json.JSONDecodeError, OSError):
-                self._data = _base_defaults()
+                self._data = _ensure_tool_paths(_base_defaults())
             return
 
         ini = self._find_ini()
         if ini is not None:
             migrated = _migrate_ini(ini)
             if migrated:
-                self._data = _deep_merge(_base_defaults(), migrated)
+                self._data = _ensure_tool_paths(_deep_merge(_base_defaults(), migrated))
                 self.save()
                 return
 
-        self._data = _base_defaults()
+        self._data = _ensure_tool_paths(_base_defaults())
 
     def _find_ini(self) -> Path | None:
         """Locate compresor.ini for migration.

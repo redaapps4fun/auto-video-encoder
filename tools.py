@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -114,7 +115,163 @@ def tool_valid(path: str) -> bool:
     if not path:
         return False
     p = Path(path)
-    return p.is_file()
+    if not p.is_file():
+        return False
+    if sys.platform != "win32" and not os.access(p, os.X_OK):
+        return False
+    return True
+
+
+def _which(names: list[str]) -> str:
+    """Return the first executable found on PATH, or empty string."""
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    return ""
+
+
+def _flatpak_handbrake_available() -> bool:
+    """Return True if HandBrake is installed via Flatpak."""
+    if shutil.which("flatpak") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["flatpak", "info", "fr.handbrake.ghb"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return result.returncode == 0
+
+
+def ensure_flatpak_handbrake_wrapper() -> Path | None:
+    """Create a Flatpak wrapper script for HandBrakeCLI on Linux.
+
+    Returns the wrapper path when Flatpak HandBrake is available, else None.
+    """
+    if sys.platform == "linux" and not _flatpak_handbrake_available():
+        return None
+
+    wrapper = get_tools_dir() / "HandBrakeCLI-flatpak.sh"
+    if wrapper.is_file() and os.access(wrapper, os.X_OK):
+        return wrapper
+
+    script = (
+        "#!/bin/sh\n"
+        'exec flatpak run --command=HandBrakeCLI fr.handbrake.ghb "$@"\n'
+    )
+    wrapper.write_text(script, encoding="utf-8")
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def discover_ffprobe() -> str:
+    """Return the best available ffprobe path for the current platform."""
+    candidates: list[str] = []
+    managed = str(get_tool_path("ffprobe"))
+    if managed:
+        candidates.append(managed)
+
+    found = _which(["ffprobe"])
+    if found and found not in candidates:
+        candidates.append(found)
+
+    for candidate in ("/usr/bin/ffprobe", "/usr/local/bin/ffprobe"):
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    fallback = ""
+    for path in candidates:
+        if not tool_valid(path):
+            continue
+        if not fallback:
+            fallback = path
+        if test_ffprobe(path)[0]:
+            return path
+    return fallback
+
+
+def discover_handbrake() -> str:
+    """Return the best available HandBrakeCLI path for the current platform."""
+    candidates: list[str] = []
+    managed = str(get_tool_path("HandBrakeCLI"))
+    if managed:
+        candidates.append(managed)
+
+    found = _which(["HandBrakeCLI", "handbrake-cli", "ghb"])
+    if found and found not in candidates:
+        candidates.append(found)
+
+    if sys.platform == "win32":
+        prog = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+        system = str(prog / "HandBrake" / "HandBrakeCLI.exe")
+        if system not in candidates:
+            candidates.append(system)
+
+    wrapper = ensure_flatpak_handbrake_wrapper()
+    if wrapper is not None:
+        wrapper_path = str(wrapper)
+        if wrapper_path not in candidates:
+            candidates.append(wrapper_path)
+
+    for candidate in (
+        "/usr/bin/HandBrakeCLI",
+        "/usr/local/bin/HandBrakeCLI",
+        "/usr/bin/handbrake-cli",
+    ):
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    fallback = ""
+    for path in candidates:
+        if not tool_valid(path):
+            continue
+        if not fallback:
+            fallback = path
+        if test_handbrake(path)[0]:
+            return path
+    return fallback
+
+
+def test_ffprobe(path: str) -> tuple[bool, str]:
+    """Run a quick ffprobe self-test. Returns (ok, message)."""
+    if not tool_valid(path):
+        return False, f"Not found or not executable: {path}"
+    try:
+        result = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return False, str(exc)
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()
+        return False, err or f"ffprobe exited with code {result.returncode}"
+    return True, ""
+
+
+def test_handbrake(path: str) -> tuple[bool, str]:
+    """Run a quick HandBrakeCLI self-test. Returns (ok, message)."""
+    if not tool_valid(path):
+        return False, f"Not found or not executable: {path}"
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return False, str(exc)
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()
+        return False, err or f"HandBrakeCLI exited with code {result.returncode}"
+    return True, ""
 
 
 # ------------------------------------------------------------------
@@ -219,9 +376,8 @@ def handbrake_available_for_download() -> bool:
 HANDBRAKE_LINUX_INSTRUCTIONS = (
     "HandBrakeCLI is not available as a standalone download for Linux.\n\n"
     "Install via Flatpak:\n"
-    "  flatpak install fr.handbrake.ghb\n\n"
-    "Then run as:\n"
-    "  flatpak run --command=HandBrakeCLI fr.handbrake.ghb\n\n"
+    "  flatpak install fr.handbrake.ghb\n"
+    "(A wrapper script is created automatically when Flatpak HandBrake is detected.)\n\n"
     "Or install your distro's handbrake-cli package, then provide the path."
 )
 

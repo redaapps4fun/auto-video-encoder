@@ -22,6 +22,7 @@ from handbrake import (
     get_output_format,
 )
 from processed_registry import ProcessedRegistry
+from tools import tool_valid, test_ffprobe, test_handbrake
 
 
 def _fmt_size(size_bytes: int) -> str:
@@ -131,11 +132,28 @@ class EncoderEngine(QObject):
         if not source or not Path(source).is_dir():
             self.error_occurred.emit(f"Source folder not found:\n{source}")
             return
-        if not hb_path or not Path(hb_path).exists():
-            self.error_occurred.emit(f"HandBrakeCLI not found:\n{hb_path}")
+        if not tool_valid(hb_path):
+            self.error_occurred.emit(
+                f"HandBrakeCLI not found or not executable:\n{hb_path}"
+            )
             return
-        if not ff_path or not Path(ff_path).exists():
-            self.error_occurred.emit(f"ffprobe not found:\n{ff_path}")
+        if not tool_valid(ff_path):
+            self.error_occurred.emit(
+                f"ffprobe not found or not executable:\n{ff_path}"
+            )
+            return
+
+        hb_ok, hb_msg = test_handbrake(hb_path)
+        if not hb_ok:
+            self.error_occurred.emit(
+                f"HandBrakeCLI failed self-test:\n{hb_path}\n\n{hb_msg}"
+            )
+            return
+        ff_ok, ff_msg = test_ffprobe(ff_path)
+        if not ff_ok:
+            self.error_occurred.emit(
+                f"ffprobe failed self-test:\n{ff_path}\n\n{ff_msg}"
+            )
             return
 
         self._stop_requested = False
@@ -399,7 +417,8 @@ class EncoderEngine(QObject):
 
         try:
             duration = probe.get_duration(file_path)
-        except FFProbeError:
+        except FFProbeError as e:
+            self._log(f"WARNING: ffprobe error: {e}")
             duration = 0.0
 
         if duration > 0:
@@ -474,6 +493,9 @@ class EncoderEngine(QObject):
 
         if not success or not temp_path.exists() or temp_path.stat().st_size == 0:
             self._log("ERROR: Encoding produced no output. Falling back to original.")
+            if self._hb_runner and self._hb_runner.last_error:
+                for line in self._hb_runner.last_error.splitlines():
+                    self._log(f"  {line}")
             self._copy_original(source_path, output_dir, file_name, delete_source, result="copied")
             self._stats_copied += 1
             self._emit_stats()

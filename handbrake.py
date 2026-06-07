@@ -479,6 +479,7 @@ class HandBrakeRunner(QObject):
         self._exe = str(handbrake_path)
         self._process: subprocess.Popen | None = None
         self._cancelled = False
+        self._last_error = ""
 
     @property
     def exe(self) -> str:
@@ -494,6 +495,11 @@ class HandBrakeRunner(QObject):
             return self._process.pid
         return 0
 
+    @property
+    def last_error(self) -> str:
+        """Last HandBrake stderr captured when an encode fails."""
+        return self._last_error
+
     def cancel(self):
         """Request cancellation of the running encode."""
         self._cancelled = True
@@ -507,6 +513,7 @@ class HandBrakeRunner(QObject):
         HandBrake reports progress on stderr.  Returns ``True`` on success.
         """
         self._cancelled = False
+        self._last_error = ""
         cmd = [self._exe] + args
 
         import sys
@@ -521,9 +528,11 @@ class HandBrakeRunner(QObject):
         try:
             self._process = subprocess.Popen(cmd, **kwargs)
         except FileNotFoundError:
+            self._last_error = f"HandBrakeCLI not found at: {self._exe}"
             self.encoding_finished.emit(False)
             return False
 
+        stderr_lines: list[str] = []
         buf = b""
         while True:
             chunk = self._process.stderr.read(256)
@@ -543,11 +552,26 @@ class HandBrakeRunner(QObject):
                 line = buf[:idx].decode("utf-8", errors="replace").strip()
                 buf = buf[idx + 1:]
 
+                if not line:
+                    continue
                 if line.startswith("Encoding:"):
                     self.progress_updated.emit(line)
+                else:
+                    stderr_lines.append(line)
 
         self._process.wait()
         success = self._process.returncode == 0 and not self._cancelled
+        if not success:
+            if self._cancelled:
+                self._last_error = "Encoding cancelled."
+            elif self._process.returncode != 0:
+                tail = stderr_lines[-8:] if stderr_lines else []
+                if tail:
+                    self._last_error = "\n".join(tail)
+                else:
+                    self._last_error = (
+                        f"HandBrakeCLI exited with code {self._process.returncode}"
+                    )
         self._process = None
         self.encoding_finished.emit(success)
         return success

@@ -18,7 +18,7 @@ A desktop application that monitors folders and automatically encodes video file
 - **Container-aware output** -- preserves `.mp4` and `.mkv` extensions; converts legacy formats (`.avi`, `.mov`, `.wmv`, etc.) to MKV
 - **Auto-download tools** -- downloads HandBrakeCLI and ffprobe on first launch if not already installed
 - **System tray integration** -- minimizes to tray on close, keeps running in the background
-- **Headless mode** -- run without GUI via `--headless` for server/daemon use
+- **Headless mode** -- run without GUI via `--headless` for server/daemon use; includes a built-in web UI on port 7332
 - **Persistent config** -- all settings saved to `config.json` and restored on next launch
 
 ## Download
@@ -96,7 +96,17 @@ If HandBrakeCLI or ffprobe are not found, a setup dialog will offer to download 
 python main.py --headless
 ```
 
-Runs without a GUI window. All output goes to the console. Useful for servers or background operation. Configure settings in `config.json` before starting.
+Runs without a Qt GUI window. A web UI is served at **http://127.0.0.1:7332** by default, providing the same controls as the desktop app (paths, encoding settings, live log, start/stop).
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--web-port` | `7332` | HTTP port for the web UI |
+| `--web-host` | `127.0.0.1` | Bind address (localhost-only by default) |
+| `--no-web-ui` | off | Console-only headless daemon (no web server) |
+
+When the web UI is enabled, the encoder starts automatically only if `auto_start_watcher` is enabled in config. With `--no-web-ui`, the encoder starts immediately (same as before).
+
+The web UI has no authentication. Keep the default bind address for local use, or place a reverse proxy in front if exposing it on a network.
 
 ### Auto-Start Watcher on Launch
 
@@ -143,6 +153,10 @@ Auto Video Encoder/
 ├── tools.py             # Auto-download manager for HandBrakeCLI and ffprobe
 ├── build.py             # PyInstaller build script
 ├── requirements.txt     # Python dependencies
+├── web/
+│   ├── bridge.py        # Qt bridge for headless web UI
+│   ├── server.py        # FastAPI server (REST + WebSocket)
+│   └── static/          # Web UI assets (HTML/CSS/JS)
 ├── ui/
 │   ├── main_window.py   # Primary application window
 │   ├── mode_abr.py      # ABR encoding mode panel

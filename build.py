@@ -38,9 +38,12 @@ def main():
         "--name", NAME,
         "--add-data", f"{ICON}{SEP}.",
         "--add-data", f"{ROOT / 'preset resolutions.txt'}{SEP}.",
+        "--add-data", f"{ROOT / 'web' / 'static'}{SEP}web/static",
         "--hidden-import", "PySide6.QtWidgets",
         "--hidden-import", "PySide6.QtGui",
         "--hidden-import", "PySide6.QtCore",
+        "--hidden-import", "uvicorn",
+        "--hidden-import", "fastapi",
         "--noconfirm",
         "--clean",
     ]

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Video Encoder</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Auto Video Encoder</h1>
+    <p class="subtitle">Headless Web UI</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <h2>Paths</h2>
+      <div class="form-grid">
+        <label for="source_base">Source Folder</label>
+        <input id="source_base" type="text" data-key="source_base">
+
+        <label for="output_base">Output Folder</label>
+        <input id="output_base" type="text" data-key="output_base">
+
+        <label for="handbrake_cli">HandBrakeCLI</label>
+        <div class="input-row">
+          <input id="handbrake_cli" type="text" data-key="handbrake_cli">
+          <button type="button" id="btn-dl-hb" class="btn secondary">Download</button>
+        </div>
+
+        <label for="ffprobe">ffprobe</label>
+        <div class="input-row">
+          <input id="ffprobe" type="text" data-key="ffprobe">
+          <button type="button" id="btn-dl-ff" class="btn secondary">Download</button>
+        </div>
+
+        <label for="video_extensions">Video Extensions</label>
+        <input id="video_extensions" type="text" data-key="video_extensions" placeholder=".mkv .mp4 .avi ...">
+      </div>
+
+      <div id="tools-status" class="tools-status"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Encoding</h2>
+      <div class="form-grid">
+        <label for="encoding_mode">Encoding Mode</label>
+        <select id="encoding_mode" data-key="encoding_mode">
+          <option value="abr">ABR Mode</option>
+          <option value="crf">CRF Mode</option>
+          <option value="advanced">Advanced Mode</option>
+        </select>
+      </div>
+
+      <div id="panel-abr" class="mode-panel">
+        <div class="form-grid" id="abr-fields"></div>
+      </div>
+
+      <div id="panel-crf" class="mode-panel hidden">
+        <div class="form-grid" id="crf-fields"></div>
+      </div>
+
+      <div id="panel-advanced" class="mode-panel hidden">
+        <div class="tab-bar" id="advanced-tabs"></div>
+        <div id="advanced-panels"></div>
+      </div>
+
+      <div class="common-controls">
+        <label><input type="checkbox" id="delete_source" data-key="delete_source"> Delete source file when done</label>
+        <label><input type="checkbox" id="auto_start_watcher" data-key="auto_start_watcher"> Start watcher on app launch</label>
+      </div>
+    </section>
+
+    <section class="panel controls-panel">
+      <div class="button-row">
+        <button type="button" id="btn-start" class="btn primary">Start</button>
+        <button type="button" id="btn-stop" class="btn danger" disabled>Stop</button>
+        <button type="button" id="btn-save" class="btn secondary">Save Config</button>
+        <button type="button" id="btn-clear-log" class="btn secondary">Clear Log</button>
+      </div>
+      <p id="save-status" class="save-status"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Status</h2>
+      <p id="status-line" class="status-line">Status: Ready</p>
+      <p id="stats-line" class="stats-line">Processed: 0   Encoded: 0   Copied: 0   Skipped: 0   Queued: 0</p>
+      <input id="progress-line" class="progress-line" type="text" readonly>
+    </section>
+
+    <section class="panel log-panel">
+      <h2>Activity Log</h2>
+      <pre id="log-view"></pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

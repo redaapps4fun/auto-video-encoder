@@ -337,6 +337,11 @@ class ConfigManager:
         except OSError:
             pass
 
+    def load_from_dict(self, data: dict):
+        """Replace config with deep-merged data over defaults and persist."""
+        self._data = _deep_merge(_base_defaults(), data)
+        self.save()
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get a top-level config value."""
         return self._data.get(key, default)

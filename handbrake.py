@@ -15,6 +15,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
+from subprocess_env import external_subprocess_kwargs
+
 
 def get_output_format(source_ext: str, override: str = "auto") -> tuple[str, str]:
     """Return (handbrake_format_flag, output_extension) for a source extension.
@@ -521,6 +523,7 @@ class HandBrakeRunner(QObject):
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.PIPE,
             "text": False,
+            **external_subprocess_kwargs(),
         }
         if sys.platform == "win32":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW

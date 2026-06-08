@@ -23,6 +23,8 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
+from subprocess_env import external_subprocess_kwargs
+
 APP_DATA_NAME = "AutoVideoEncoder"
 
 FFBINARIES_API = "https://ffbinaries.com/api/v1/version/latest"
@@ -141,6 +143,7 @@ def _flatpak_handbrake_available() -> bool:
             capture_output=True,
             text=True,
             timeout=15,
+            **external_subprocess_kwargs(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
@@ -246,6 +249,7 @@ def test_ffprobe(path: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=15,
+            **external_subprocess_kwargs(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
         return False, str(exc)
@@ -265,6 +269,7 @@ def test_handbrake(path: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=30,
+            **external_subprocess_kwargs(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
         return False, str(exc)

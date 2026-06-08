@@ -97,7 +97,7 @@ VIDEO_EXTENSIONS = [
 ]
 
 APP_NAME = "Auto Video Encoder"
-APP_VERSION = "2.0.2"
+APP_VERSION = "2.0.3"
 DEFAULT_AUDIO_BITRATE = 128
 
 def get_icon_path() -> str:

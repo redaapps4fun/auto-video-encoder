@@ -10,6 +10,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from subprocess_env import external_subprocess_kwargs
+
 
 class FFProbeError(Exception):
     """Raised when ffprobe is missing or returns an error."""
@@ -39,6 +41,7 @@ class FFProbeRunner:
                 text=True,
                 timeout=30,
                 creationflags=_creation_flags(),
+                **external_subprocess_kwargs(),
             )
         except FileNotFoundError:
             raise FFProbeError(f"ffprobe not found at: {self._exe}")

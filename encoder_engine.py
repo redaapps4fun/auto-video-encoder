@@ -474,11 +474,19 @@ class EncoderEngine(QObject):
         self.progress_updated.emit("")
 
         # -- Post-encode -----------------------------------------------
-        self._on_encoding_complete(
-            success, file_path, temp_output, output_dir,
-            file_name, file_base, out_ext, orig_size, delete_source,
-        )
-        self._set_state("processing")
+        try:
+            self._on_encoding_complete(
+                success, file_path, temp_output, output_dir,
+                file_name, file_base, out_ext, orig_size, delete_source,
+            )
+        except Exception as e:
+            self._log(f"ERROR: Post-encode failed: {e}")
+            try:
+                Path(temp_output).unlink(missing_ok=True)
+            except OSError:
+                pass
+        finally:
+            self._set_state("processing")
 
     # ------------------------------------------------------------------
     #  Post-encode
@@ -518,10 +526,10 @@ class EncoderEngine(QObject):
             source_base = self._source_base()
 
             replace_in_place = self._config.get("replace_in_place", False)
-            source_rel = self._registry.relative_key(source_base, source_path)
-            output_rel = self._registry.relative_key(source_base, final_path)
 
             if replace_in_place:
+                source_rel = self._registry.relative_key(source_base, source_path)
+                output_rel = self._registry.relative_key(source_base, final_path)
                 self._registry.mark_processed(
                     source_base, source_path, "encoded", output_rel=output_rel,
                 )
